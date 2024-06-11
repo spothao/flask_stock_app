@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Stock Tracker</title>
+  </head>
+  <body>
+    <h1>Stock Tracker</h1>
+    <form action="{{ url_for('add_stock') }}" method="post">
+      <input type="text" name="tickers" placeholder="Enter stock tickers, comma separated">
+      <button type="submit">Add Stock</button>
+    </form>
+    <button onclick="location.href='{{ url_for('refresh_stock') }}'">Refresh Stocks</button>
+    <button onclick="location.href='{{ url_for('init_db') }}'">Initialize Database</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Name</th>
+          <th>Price</th>
+          <th>Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stock in stocks %}
+          <tr>
+            <td>{{ stock.ticker }}</td>
+            <td>{{ stock.name }}</td>
+            <td>{{ stock.price }}</td>
+            <td>{{ stock.change }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+  </body>
+</html>
