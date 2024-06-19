@@ -36,12 +36,11 @@ def refresh_stock():
             db.session.commit()
     return redirect(url_for('index'))
 
-@app.route('/init_db')
 def init_db():
     with app.app_context():
         db.create_all()
-        flash("Database initialized successfully.", "success")
-    return redirect(url_for('index'))
+        print("Database tables created successfully.")
 
 if __name__ == '__main__':
+    init_db()
     app.run(debug=True)
