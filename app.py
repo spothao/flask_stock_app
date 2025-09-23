@@ -5,45 +5,48 @@ import os
 from models import db, Stock, History
 from scoring import calculate_score
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///stocks.db').replace("postgres://", "postgresql://")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.secret_key = os.environ.get('SECRET_KEY', '11abe499f15247d1de9102f8d5e5f556')  # Fallback for local
 db.init_app(app)
 
 with app.app_context():
     db.create_all()
 
-def clean_name(html_str):
-    # Strip HTML tags (e.g., <div class='stock_change'...>Name</div> -> Name)
-    return re.sub(r'<[^>]*>', '', html_str).strip()
-
 def get_all_stock_codes():
     codes = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:142.0) Gecko/20100101 Firefox/142.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br, zstd'
+    }
     page = 1
     while True:
         url = f"https://www.bursamalaysia.com/api/v1/equities_prices/equities_prices?inMarket=stock&per_page=50&page={page}"
         try:
-            resp = requests.get(url)
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()  # Raise if HTTP error (e.g., 404, 500)
             data = resp.json()
-            if not data or 'data' not in data:
-                break
-            page_data = data['data']
-            total = int(data.get('recordsTotal', 0))
-            for row in page_data:
-                code = row.get('stock_id', '').strip()
-                name_html = row.get('short_name', '')
-                name = clean_name(name_html)
-                if code and name and len(code) <= 10:  # Valid KLSE code
+            if 'data' not in data or not data['data']:
+                break  # Exit if no more data
+            for row in data['data']:
+                if len(row) < 3:
+                    continue  # Skip invalid rows
+                code = row[2].strip()  # Stock Code at index 2
+                name_html = row[1]  # Stock Name with HTML at index 1
+                # Clean HTML to extract name
+                soup = BeautifulSoup(name_html, 'html.parser')
+                name = soup.get_text(strip=True).strip()  # E.g., "JSSOLAR [S]"
+                if code and name:
                     codes.append((code, name))
-            records_fetched = len(page_data)
-            if records_fetched == 0 or len(codes) >= total:
-                break
             page += 1
-        except Exception as e:
+        except (requests.RequestException, ValueError) as e:
             print(f"API fetch error on page {page}: {e}")
             break
-    return list(set(codes))  # Dedupe if any
+    return list(set(codes))  # Dedupe in case of duplicates
 
 # Fallback hardcoded list from sample JSON (top 5 for demo)
 FALLBACK_CODES = [
