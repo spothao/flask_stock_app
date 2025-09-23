@@ -3,6 +3,7 @@ import requests
 import re  # For cleaning HTML in names
 import os
 import cloudscraper
+import time
 from models import db, Stock, History
 from scoring import calculate_score
 from datetime import datetime
@@ -30,7 +31,7 @@ def get_all_stock_codes():
         "start": 0,
         "order": [{"column": 1, "dir": "asc"}],
         "page": 0,
-        "size": 3000,
+        "size": 500,  # Reduced from 3000 to avoid timeout
         "marketList": ["ACE", "ETF", "MAIN"],
         "sectorList": [],
         "subsectorList": [],
@@ -38,28 +39,34 @@ def get_all_stock_codes():
         "stockType": ""
     }
     url = "https://klse.i3investor.com/wapi/web/stock/listing/datatables"
-    try:
-        resp = requests.post(url, headers=headers, json=body, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        if 'data' not in data or not data['data']:
-            return []
-        for row in data['data']:
-            if len(row) < 2:
-                continue
-            name_html = row[1]  # NAME column with HTML
-            soup = BeautifulSoup(name_html, 'html.parser')
-            a_tag = soup.find('a')
-            if a_tag:
-                code = a_tag['href'].split('/')[-1]  # Extract code from href="/web/stock/overview/0012"
-                short_name = a_tag.text.strip()  # "3A"
-                full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')  # Extract full name after <br/>
-                name = f"{short_name} - {full_name}"  # Combined name
-                if code and name:
-                    codes.append((code, name))
-    except (requests.RequestException, ValueError) as e:
-        print(f"API fetch error: {e}")
-    return list(set(codes))  # Dedupe
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(url, headers=headers, json=body, timeout=15)  # Increased timeout
+            resp.raise_for_status()
+            data = resp.json()
+            if 'data' not in data or not data['data']:
+                return []
+            for row in data['data']:
+                if len(row) < 2:
+                    continue
+                name_html = row[1]  # NAME column with HTML
+                soup = BeautifulSoup(name_html, 'html.parser')
+                a_tag = soup.find('a')
+                if a_tag:
+                    code = a_tag['href'].split('/')[-1]  # Extract code from href="/web/stock/overview/0012"
+                    short_name = a_tag.text.strip()  # "3A"
+                    full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')  # Extract full name after <br/>
+                    name = f"{short_name} - {full_name}"  # Combined name
+                    if code and name:
+                        codes.append((code, name))
+            return list(set(codes))  # Dedupe
+        except requests.RequestException as e:
+            print(f"API fetch error (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+            else:
+                return []
 
 @app.route('/')
 def index():
@@ -70,55 +77,58 @@ from datetime import datetime
 
 @app.route('/refresh', methods=['POST'])
 def refresh():
-    codes = get_all_stock_codes()
-    today = datetime.utcnow().date()
-    updated_count = 0
-    for code, name in codes:
-        stock = Stock.query.filter_by(code=code).first()
-        if not stock:
-            stock = Stock(code=code, name=name)
-            db.session.add(stock)
+    try:
+        codes = get_all_stock_codes()
+        today = datetime.utcnow().date()
+        updated_count = 0
+        for code, name in codes:
+            stock = Stock.query.filter_by(code=code).first()
+            if not stock:
+                stock = Stock(code=code, name=name)
+                db.session.add(stock)
+            
+            if stock.last_refreshed and stock.last_refreshed.date() == today:
+                continue
+            
+            url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
+            try:
+                resp = requests.get(url, timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    new_score, new_breakdown = calculate_score(data)
+                    
+                    if stock.current_score != new_score and stock.current_score != 0:
+                        history = History(
+                            stock_id=stock.id,
+                            score=stock.current_score,
+                            breakdown=stock.breakdown,
+                            net_profit_5y_cagr=stock.net_profit_5y_cagr,
+                            div_yield=stock.div_yield,
+                            pe_ratio=stock.pe_ratio,
+                            roe=stock.roe
+                        )
+                        db.session.add(history)
+                    
+                    stock.net_profit_5y_cagr = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
+                    stock.div_yield = float(data.get('Stock', {}).get('DY', 0))
+                    stock.pe_ratio = float(data.get('Stock', {}).get('PE', 999))
+                    stock.roe = float(data.get('Stock', {}).get('ROE', 0))
+                    stock.current_score = new_score
+                    stock.breakdown = new_breakdown
+                    stock.last_updated = datetime.utcnow()
+                    stock.last_refreshed = datetime.utcnow()
+                    db.session.commit()
+                    updated_count += 1
+                else:
+                    flash(f"Failed to fetch {code}")
+            except Exception as e:
+                flash(f"Error on {code}: {e}")
+                continue
         
-        # Skip if refreshed today
-        if stock.last_refreshed and stock.last_refreshed.date() == today:
-            continue
-        
-        url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-        try:
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                new_score, new_breakdown = calculate_score(data)
-                
-                if stock.current_score != new_score and stock.current_score != 0:
-                    history = History(
-                        stock_id=stock.id,
-                        score=stock.current_score,
-                        breakdown=stock.breakdown,
-                        net_profit_5y_cagr=stock.net_profit_5y_cagr,
-                        div_yield=stock.div_yield,
-                        pe_ratio=stock.pe_ratio,
-                        roe=stock.roe
-                    )
-                    db.session.add(history)
-                
-                stock.net_profit_5y_cagr = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
-                stock.div_yield = float(data.get('Stock', {}).get('DY', 0))
-                stock.pe_ratio = float(data.get('Stock', {}).get('PE', 999))
-                stock.roe = float(data.get('Stock', {}).get('ROE', 0))
-                stock.current_score = new_score
-                stock.breakdown = new_breakdown
-                stock.last_updated = datetime.utcnow()
-                stock.last_refreshed = datetime.utcnow()
-                db.session.commit()  # Commit per stock
-                updated_count += 1
-            else:
-                flash(f"Failed to fetch {code}")
-        except Exception as e:
-            flash(f"Error on {code}: {e}")
-            continue
-    
-    flash(f"Refresh complete! Updated {updated_count} stocks.")
+        flash(f"Refresh complete! Updated {updated_count} stocks.")
+    except Exception as e:
+        flash(f"Database error: {e}")
+        db.session.rollback()
     return redirect(url_for('index'))
 
 @app.route('/favorite/<code>', methods=['POST'])
