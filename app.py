@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 import requests
 import re  # For cleaning HTML in names
 import os
+import cloudscraper
 from models import db, Stock, History
 from scoring import calculate_score
 from datetime import datetime
@@ -18,35 +19,30 @@ with app.app_context():
 
 def get_all_stock_codes():
     codes = []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:142.0) Gecko/20100101 Firefox/142.0',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br, zstd'
-    }
+    scraper = cloudscraper.create_scraper()  # Handles Cloudflare automatically
     page = 1
     while True:
         url = f"https://www.bursamalaysia.com/api/v1/equities_prices/equities_prices?inMarket=stock&per_page=50&page={page}"
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            resp.raise_for_status()  # Raise if HTTP error (e.g., 404, 500)
+            resp = scraper.get(url, timeout=10)
+            resp.raise_for_status()
             data = resp.json()
             if 'data' not in data or not data['data']:
-                break  # Exit if no more data
+                break
             for row in data['data']:
                 if len(row) < 3:
-                    continue  # Skip invalid rows
-                code = row[2].strip()  # Stock Code at index 2
-                name_html = row[1]  # Stock Name with HTML at index 1
-                # Clean HTML to extract name
+                    continue
+                code = row[2].strip()
+                name_html = row[1]
                 soup = BeautifulSoup(name_html, 'html.parser')
-                name = soup.get_text(strip=True).strip()  # E.g., "JSSOLAR [S]"
+                name = soup.get_text(strip=True).strip()
                 if code and name:
                     codes.append((code, name))
             page += 1
-        except (requests.RequestException, ValueError) as e:
+        except Exception as e:
             print(f"API fetch error on page {page}: {e}")
             break
-    return list(set(codes))  # Dedupe in case of duplicates
+    return list(set(codes))
 
 # Fallback hardcoded list from sample JSON (top 5 for demo)
 FALLBACK_CODES = [
