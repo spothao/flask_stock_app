@@ -66,29 +66,28 @@ def index():
     stocks = Stock.query.order_by(Stock.is_favorite.desc(), Stock.current_score.desc()).all()  # Sort by favorite then score
     return render_template('index.html', stocks=stocks)
 
+from datetime import datetime
+
 @app.route('/refresh', methods=['POST'])
 def refresh():
     codes = get_all_stock_codes()
-    
-    new_codes_added = 0
+    today = datetime.utcnow().date()
+    updated_count = 0
     for code, name in codes:
         stock = Stock.query.filter_by(code=code).first()
         if not stock:
             stock = Stock(code=code, name=name)
             db.session.add(stock)
-            new_codes_added += 1
+        
+        # Skip if refreshed today
+        if stock.last_refreshed and stock.last_refreshed.date() == today:
+            continue
         
         url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
         try:
             resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
-                # Extract raw data points
-                growth = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
-                div_yield = float(data.get('Stock', {}).get('DY', 0))
-                per = float(data.get('Stock', {}).get('PE', 999))
-                roe = float(data.get('Stock', {}).get('ROE', 0))
-                
                 new_score, new_breakdown = calculate_score(data)
                 
                 if stock.current_score != new_score and stock.current_score != 0:
@@ -103,21 +102,23 @@ def refresh():
                     )
                     db.session.add(history)
                 
-                stock.net_profit_5y_cagr = growth
-                stock.div_yield = div_yield
-                stock.pe_ratio = per
-                stock.roe = roe
+                stock.net_profit_5y_cagr = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
+                stock.div_yield = float(data.get('Stock', {}).get('DY', 0))
+                stock.pe_ratio = float(data.get('Stock', {}).get('PE', 999))
+                stock.roe = float(data.get('Stock', {}).get('ROE', 0))
                 stock.current_score = new_score
                 stock.breakdown = new_breakdown
+                stock.last_updated = datetime.utcnow()
+                stock.last_refreshed = datetime.utcnow()
+                db.session.commit()  # Commit per stock
+                updated_count += 1
             else:
-                flash(f"Failed to fetch details for {code}")
+                flash(f"Failed to fetch {code}")
         except Exception as e:
-            flash(f"Error updating {code}: {e}")
-        
-        stock.last_updated = datetime.utcnow()
+            flash(f"Error on {code}: {e}")
+            continue
     
-    db.session.commit()
-    flash(f"Refresh complete! Added {new_codes_added} new stocks.")
+    flash(f"Refresh complete! Updated {updated_count} stocks.")
     return redirect(url_for('index'))
 
 @app.route('/favorite/<code>', methods=['POST'])
