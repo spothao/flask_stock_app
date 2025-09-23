@@ -1,5 +1,5 @@
-Flask
-flask-sqlalchemy
-psycopg2-binary
-requests
-gunicorn
+flask==3.0.3
+sqlalchemy==2.0.35
+requests==2.32.3
+beautifulsoup4==4.12.3
+gunicorn==23.0.0
