@@ -19,40 +19,47 @@ with app.app_context():
 
 def get_all_stock_codes():
     codes = []
-    scraper = cloudscraper.create_scraper()  # Handles Cloudflare automatically
-    page = 1
-    while True:
-        url = f"https://www.bursamalaysia.com/api/v1/equities_prices/equities_prices?inMarket=stock&per_page=50&page={page}"
-        try:
-            resp = scraper.get(url, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            if 'data' not in data or not data['data']:
-                break
-            for row in data['data']:
-                if len(row) < 3:
-                    continue
-                code = row[2].strip()
-                name_html = row[1]
-                soup = BeautifulSoup(name_html, 'html.parser')
-                name = soup.get_text(strip=True).strip()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:142.0) Gecko/20100101 Firefox/142.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
+        'Content-Type': 'application/json'
+    }
+    body = {
+        "dtDraw": 7,
+        "start": 0,
+        "order": [{"column": 1, "dir": "asc"}],
+        "page": 0,
+        "size": 3000,
+        "marketList": ["ACE", "ETF", "MAIN"],
+        "sectorList": [],
+        "subsectorList": [],
+        "type": "",
+        "stockType": ""
+    }
+    url = "https://klse.i3investor.com/wapi/web/stock/listing/datatables"
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if 'data' not in data or not data['data']:
+            return []
+        for row in data['data']:
+            if len(row) < 2:
+                continue
+            name_html = row[1]  # NAME column with HTML
+            soup = BeautifulSoup(name_html, 'html.parser')
+            a_tag = soup.find('a')
+            if a_tag:
+                code = a_tag['href'].split('/')[-1]  # Extract code from href="/web/stock/overview/0012"
+                short_name = a_tag.text.strip()  # "3A"
+                full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')  # Extract full name after <br/>
+                name = f"{short_name} - {full_name}"  # Combined name
                 if code and name:
                     codes.append((code, name))
-            page += 1
-        except Exception as e:
-            print(f"API fetch error on page {page}: {e}")
-            break
-    return list(set(codes))
-
-# Fallback hardcoded list from sample JSON (top 5 for demo)
-FALLBACK_CODES = [
-    ('7079', 'TWL [S]'),
-    ('0116', 'FOCUS'),
-    ('6963', 'VS [S]'),
-    ('7081', 'PHARMA [S]'),  # Assuming from truncated
-    ('0366', 'ICENTS [S]'),
-    # Add more from full JSON if needed
-]
+    except (requests.RequestException, ValueError) as e:
+        print(f"API fetch error: {e}")
+    return list(set(codes))  # Dedupe
 
 @app.route('/')
 def index():
@@ -62,9 +69,6 @@ def index():
 @app.route('/refresh', methods=['POST'])
 def refresh():
     codes = get_all_stock_codes()
-    if not codes:
-        codes = FALLBACK_CODES
-        flash("Using fallback list; API unavailable.")
     
     new_codes_added = 0
     for code, name in codes:
