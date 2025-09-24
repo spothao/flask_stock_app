@@ -1,9 +1,37 @@
 def calculate_score(stock_data, stock=None):
     # Use stored values if available, else from JSON
-    growth = float(stock.net_profit_5y_cagr) if stock and stock.net_profit_5y_cagr is not None else float(stock_data.get('growth', {}).get('net_profit_5y_cagr', 0))
     div_yield = float(stock.div_yield) if stock and stock.div_yield is not None else float(stock_data.get('Stock', {}).get('DY', 0))
     per = float(stock.pe_ratio) if stock and stock.pe_ratio is not None else float(stock_data.get('Stock', {}).get('PE', 999))
     roe = float(stock.roe) if stock and stock.roe is not None else float(stock_data.get('Stock', {}).get('ROE', 0))
+    
+    # Calculate growth if not provided
+    growth = float(stock.net_profit_5y_cagr) if stock and stock.net_profit_5y_cagr is not None else float(stock_data.get('growth', {}).get('net_profit_5y_cagr', 0))
+    if growth == 0:  # Compute manually if missing
+        reports = stock_data.get('FinancialReport', [])
+        if reports:
+            # Sort reports by quarter_date_end descending
+            from datetime import datetime
+            reports_sorted = sorted(reports, key=lambda r: datetime.strptime(r['quarter_date_end'], '%Y-%m-%d'), reverse=True)
+            
+            # Group by financial_year_end and sum profit_loss for each year
+            annual_profits = {}
+            for report in reports_sorted:
+                year = report['financial_year_end']
+                profit = float(report.get('profit_loss', 0))
+                annual_profits[year] = annual_profits.get(year, 0) + profit
+            
+            # Get the last 5 years' annual profits, sorted by year descending
+            years = sorted(annual_profits.keys(), reverse=True)[:5]
+            if len(years) < 2:
+                growth = 0  # Not enough data
+            else:
+                latest_profit = annual_profits[years[0]]
+                earliest_profit = annual_profits[years[-1]]
+                if earliest_profit == 0:
+                    growth = 0  # Avoid division by zero
+                else:
+                    num_years = len(years) - 1
+                    growth = ((latest_profit / earliest_profit) ** (1 / num_years) - 1) * 100
     
     try:
         # Latest quarter for margin (still from JSON as it’s computed)
