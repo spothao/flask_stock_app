@@ -6,7 +6,6 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Boolean  # Added Booleanfrom sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from models import db, Stock, History
-from scoring import calculate_score
 from datetime import datetime
 from flask_migrate import Migrate
 import logging
