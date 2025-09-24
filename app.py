@@ -196,13 +196,14 @@ def favorite(code):
 
 @app.route('/manual_refresh', methods=['GET', 'POST'])
 def manual_refresh():
-    db_session = Session()  # Move session creation outside try block
+    db_session = Session()
     try:
         if request.method == 'POST':
             code = request.form.get('stock_code', '').upper()
             if code:
                 url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-                resp = requests.get(url, timeout=10)
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+                resp = requests.get(url, headers=headers, timeout=10)
                 resp.raise_for_status()
                 stock_data = resp.json()
                 
@@ -221,12 +222,17 @@ def manual_refresh():
                 return redirect(url_for('manual_refresh'))
             else:
                 flash("Please enter a stock code.")
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            flash(f"Access denied for {code}. The site may block automated requests. Try a different stock or contact support.")
+        else:
+            flash(f"Failed to fetch {code}: {e}")
     except requests.RequestException as e:
-        flash(f"Failed to fetch {code}: {e}")
+        flash(f"Network error for {code}: {e}")
     except Exception as e:
         flash(f"Error processing {code}: {e}")
     finally:
-        db_session.close()  # Ensure session is always closed
+        db_session.close()
 
     return render_template('manual_refresh.html')
 
