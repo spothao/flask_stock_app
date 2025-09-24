@@ -3,7 +3,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from models import db, Stock, History
 from scoring import calculate_score
@@ -31,6 +32,25 @@ engine = create_engine(
     pool_timeout=30,
     connect_args={'sslmode': 'require'}
 )
+Base = declarative_base()
+
+# Stock model
+class Stock(Base):
+    __tablename__ = 'stock'
+    id = Column(Integer, primary_key=True)
+    code = Column(String, unique=True, nullable=False)
+    name = Column(String)
+    last_updated = Column(DateTime)
+    current_score = Column(Float)
+    breakdown = Column(JSON)
+    is_favorite = Column(Boolean, default=False)
+    net_profit_5y_cagr = Column(Float)
+    div_yield = Column(Float)
+    pe_ratio = Column(Float)
+    roe = Column(Float)
+    last_refreshed = Column(DateTime)
+
+Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 with app.app_context():
@@ -177,38 +197,38 @@ def favorite(code):
 
 @app.route('/manual_refresh', methods=['GET', 'POST'])
 def manual_refresh():
-    if request.method == 'POST':
-        code = request.form.get('stock_code', '').upper()
-        if code:
-            url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-            try:
+    db_session = Session()  # Move session creation outside try block
+    try:
+        if request.method == 'POST':
+            code = request.form.get('stock_code', '').upper()
+            if code:
+                url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
                 resp = requests.get(url, timeout=10)
                 resp.raise_for_status()
                 stock_data = resp.json()
-                session = Session()
-                stock = session.query(Stock).filter_by(code=code).first()
+                
+                stock = db_session.query(Stock).filter_by(code=code).first()
                 if not stock:
                     stock = Stock(code=code, name=stock_data.get('Stock', {}).get('name', code))
-                    session.add(stock)
-                    session.commit()
+                    db_session.add(stock)
+                    db_session.commit()
                 
                 score, breakdown = calculate_score(stock_data, stock)
                 stock.current_score = score
                 stock.breakdown = breakdown
                 stock.last_updated = datetime.utcnow()
-                session.commit()
+                db_session.commit()
                 flash(f"Score for {stock.name} ({code}): {score}")
-                session.close()
                 return redirect(url_for('manual_refresh'))
-            except requests.RequestException as e:
-                flash(f"Failed to fetch {code}: {e}")
-            except Exception as e:
-                flash(f"Error processing {code}: {e}")
-            finally:
-                session.close()
-        else:
-            flash("Please enter a stock code.")
-    
+            else:
+                flash("Please enter a stock code.")
+    except requests.RequestException as e:
+        flash(f"Failed to fetch {code}: {e}")
+    except Exception as e:
+        flash(f"Error processing {code}: {e}")
+    finally:
+        db_session.close()  # Ensure session is always closed
+
     return render_template('manual_refresh.html')
 
 if __name__ == '__main__':
