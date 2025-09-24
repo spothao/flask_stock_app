@@ -1,19 +1,31 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 import requests
-import re  # For cleaning HTML in names
-import os
-import cloudscraper
+from bs4 import BeautifulSoup
 import time
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from models import db, Stock, History
 from scoring import calculate_score
 from datetime import datetime
-from bs4 import BeautifulSoup
+from flask_migrate import Migrate
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///stocks.db').replace("postgres://", "postgresql://")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.secret_key = os.environ.get('SECRET_KEY', '11abe499f15247d1de9102f8d5e5f556')  # Fallback for local
+app.secret_key = os.environ.get('SECRET_KEY', '11abe499f15247d1de9102f8d5e5f556')
 db.init_app(app)
+migrate = Migrate(app, db)
+
+# Custom engine with retry and connection pooling
+engine = create_engine(
+    app.config['SQLALCHEMY_DATABASE_URI'],
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30,
+    connect_args={'sslmode': 'require'}
+)
+Session = sessionmaker(bind=engine)
 
 with app.app_context():
     db.create_all()
@@ -31,7 +43,7 @@ def get_all_stock_codes():
         "start": 0,
         "order": [{"column": 1, "dir": "asc"}],
         "page": 0,
-        "size": 500,  # Reduced from 3000 to avoid timeout
+        "size": 500,
         "marketList": ["ACE", "ETF", "MAIN"],
         "sectorList": [],
         "subsectorList": [],
@@ -42,7 +54,7 @@ def get_all_stock_codes():
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            resp = requests.post(url, headers=headers, json=body, timeout=15)  # Increased timeout
+            resp = requests.post(url, headers=headers, json=body, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             if 'data' not in data or not data['data']:
@@ -50,42 +62,47 @@ def get_all_stock_codes():
             for row in data['data']:
                 if len(row) < 2:
                     continue
-                name_html = row[1]  # NAME column with HTML
+                name_html = row[1]
                 soup = BeautifulSoup(name_html, 'html.parser')
                 a_tag = soup.find('a')
                 if a_tag:
-                    code = a_tag['href'].split('/')[-1]  # Extract code from href="/web/stock/overview/0012"
-                    short_name = a_tag.text.strip()  # "3A"
-                    full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')  # Extract full name after <br/>
-                    name = f"{short_name} - {full_name}"  # Combined name
+                    code = a_tag['href'].split('/')[-1]
+                    short_name = a_tag.text.strip()
+                    full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')
+                    name = f"{short_name} - {full_name}"
                     if code and name:
                         codes.append((code, name))
-            return list(set(codes))  # Dedupe
+            return list(set(codes))
         except requests.RequestException as e:
             print(f"API fetch error (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                time.sleep(2 ** attempt)
             else:
                 return []
 
 @app.route('/')
 def index():
-    stocks = Stock.query.order_by(Stock.is_favorite.desc(), Stock.current_score.desc()).all()  # Sort by favorite then score
-    return render_template('index.html', stocks=stocks)
-
-from datetime import datetime
+    try:
+        session = Session()
+        stocks = session.query(Stock).order_by(Stock.is_favorite.desc(), Stock.current_score.desc()).all()
+        session.close()
+        return render_template('index.html', stocks=stocks)
+    except Exception as e:
+        print(f"Database error in index: {e}")
+        return render_template('error.html', message="Database connection failed. Please try again later."), 500
 
 @app.route('/refresh', methods=['POST'])
 def refresh():
     try:
+        session = Session()
         codes = get_all_stock_codes()
         today = datetime.utcnow().date()
         updated_count = 0
         for code, name in codes:
-            stock = Stock.query.filter_by(code=code).first()
+            stock = session.query(Stock).filter_by(code=code).first()
             if not stock:
                 stock = Stock(code=code, name=name)
-                db.session.add(stock)
+                session.add(stock)
             
             if stock.last_refreshed and stock.last_refreshed.date() == today:
                 continue
@@ -107,7 +124,7 @@ def refresh():
                             pe_ratio=stock.pe_ratio,
                             roe=stock.roe
                         )
-                        db.session.add(history)
+                        session.add(history)
                     
                     stock.net_profit_5y_cagr = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
                     stock.div_yield = float(data.get('Stock', {}).get('DY', 0))
@@ -117,7 +134,7 @@ def refresh():
                     stock.breakdown = new_breakdown
                     stock.last_updated = datetime.utcnow()
                     stock.last_refreshed = datetime.utcnow()
-                    db.session.commit()
+                    session.commit()
                     updated_count += 1
                 else:
                     flash(f"Failed to fetch {code}")
@@ -128,16 +145,23 @@ def refresh():
         flash(f"Refresh complete! Updated {updated_count} stocks.")
     except Exception as e:
         flash(f"Database error: {e}")
-        db.session.rollback()
+        session.rollback()
+    finally:
+        session.close()
     return redirect(url_for('index'))
 
 @app.route('/favorite/<code>', methods=['POST'])
 def favorite(code):
-    stock = Stock.query.filter_by(code=code).first()
-    if stock:
-        stock.is_favorite = not stock.is_favorite
-        db.session.commit()
-        flash(f"{stock.name} favorite toggled!")
+    try:
+        session = Session()
+        stock = session.query(Stock).filter_by(code=code).first()
+        if stock:
+            stock.is_favorite = not stock.is_favorite
+            session.commit()
+            flash(f"{stock.name} favorite toggled!")
+        session.close()
+    except Exception as e:
+        flash(f"Database error: {e}")
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
