@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 import requests
 from bs4 import BeautifulSoup
 import time
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import db, Stock, History
