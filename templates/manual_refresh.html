@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manual Stock Refresh</title>
+</head>
+<body>
+    <h1>Manual Stock Refresh</h1>
+    <form method="post">
+        <label for="stock_code">Stock Code:</label>
+        <input type="text" id="stock_code" name="stock_code" required>
+        <button type="submit">Refresh</button>
+    </form>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for message in messages %}
+                <p>{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</body>

@@ -175,5 +175,41 @@ def favorite(code):
         flash(f"Database error: {e}")
     return redirect(url_for('index'))
 
+@app.route('/manual_refresh', methods=['GET', 'POST'])
+def manual_refresh():
+    if request.method == 'POST':
+        code = request.form.get('stock_code', '').upper()
+        if code:
+            url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
+            try:
+                resp = requests.get(url, timeout=10)
+                resp.raise_for_status()
+                stock_data = resp.json()
+                session = Session()
+                stock = session.query(Stock).filter_by(code=code).first()
+                if not stock:
+                    stock = Stock(code=code, name=stock_data.get('Stock', {}).get('name', code))
+                    session.add(stock)
+                    session.commit()
+                
+                score, breakdown = calculate_score(stock_data, stock)
+                stock.current_score = score
+                stock.breakdown = breakdown
+                stock.last_updated = datetime.utcnow()
+                session.commit()
+                flash(f"Score for {stock.name} ({code}): {score}")
+                session.close()
+                return redirect(url_for('manual_refresh'))
+            except requests.RequestException as e:
+                flash(f"Failed to fetch {code}: {e}")
+            except Exception as e:
+                flash(f"Error processing {code}: {e}")
+            finally:
+                session.close()
+        else:
+            flash("Please enter a stock code.")
+    
+    return render_template('manual_refresh.html')
+
 if __name__ == '__main__':
     app.run(debug=True)
