@@ -9,6 +9,11 @@ from models import db, Stock, History
 from scoring import calculate_score
 from datetime import datetime
 from flask_migrate import Migrate
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///stocks.db').replace("postgres://", "postgresql://")
@@ -100,10 +105,15 @@ def refresh():
         today = datetime.utcnow().date()
         updated_count = 0
         for code, name in codes:
+            logger.info(f"Processing stock: code={code}, name={name}")
             stock = session.query(Stock).filter_by(code=code).first()
             if not stock:
                 stock = Stock(code=code, name=name)
                 session.add(stock)
+                session.commit()  # Immediate upsert for new stock
+            else:
+                # Update existing stock
+                pass  # Will update below, commit after changes
             
             if stock.last_refreshed and stock.last_refreshed.date() == today:
                 continue
@@ -135,7 +145,7 @@ def refresh():
                     stock.breakdown = new_breakdown
                     stock.last_updated = datetime.utcnow()
                     stock.last_refreshed = datetime.utcnow()
-                    session.commit()
+                    session.commit()  # Immediate upsert for updates
                     updated_count += 1
                 else:
                     flash(f"Failed to fetch {code}")
