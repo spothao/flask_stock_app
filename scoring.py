@@ -1,4 +1,5 @@
-# Calculate score function
+from datetime import datetime
+
 def calculate_score(stock_data, stock=None):
     # Use stored values if available, else from JSON
     div_yield = float(stock.div_yield) if stock and stock.div_yield is not None else float(stock_data.get('Stock', {}).get('DY', 0))
@@ -42,9 +43,9 @@ def calculate_score(stock_data, stock=None):
         else:
             margin = 0
         
-        # Cash flow and profit positivity (simplified due to missing operating_cf)
+        # Cash flow and profit positivity
+        cash_positive = any(float(r.get('operating_cf', 0)) > 0 for r in reports[-4:])  # Last year approx
         profit_positive = profit >= 0
-        cash_positive = True  # Remove cash check if data unavailable
         
         # GDP (Growth, Dividend, PE)
         g_points = 50 if growth >= 15 else 40 if growth >= 10 else 30 if growth >= 6 else 20 if growth >= 1 else 0
@@ -55,7 +56,7 @@ def calculate_score(stock_data, stock=None):
         # PRC (Profit Margin, ROE, Cash)
         p_points_prc = 30 if margin >= 16 else 20 if margin >= 11 else 10 if margin >= 6 else 5 if margin >= 1 else 0
         r_points = 30 if roe >= 16 else 20 if roe >= 11 else 10 if roe >= 6 else 5 if roe >= 1 else 0
-        c_points = -100 if not profit_positive else 0  # Simplified without cash data
+        c_points = -100 if not profit_positive else -50 if not cash_positive else 0
         prc = p_points_prc + r_points + c_points
         
         total = max(0, gdp + prc)  # Ensure score is not negative
