@@ -56,47 +56,57 @@ def get_all_stock_codes():
         'Accept-Encoding': 'gzip, deflate, br, zstd',
         'Content-Type': 'application/json'
     }
-    body = {
-        "dtDraw": 7,
-        "start": 0,
-        "order": [{"column": 1, "dir": "asc"}],
-        "page": 0,
-        "size": 500,
-        "marketList": ["ACE", "ETF", "MAIN"],
-        "sectorList": [],
-        "subsectorList": [],
-        "type": "",
-        "stockType": ""
-    }
     url = "https://klse.i3investor.com/wapi/web/stock/listing/datatables"
+    size = 500  # Number of records per page
+    start = 0   # Starting index
     max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            resp = requests.post(url, headers=headers, json=body, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            if 'data' not in data or not data['data']:
-                return []
-            for row in data['data']:
-                if len(row) < 2:
-                    continue
-                name_html = row[1]
-                soup = BeautifulSoup(name_html, 'html.parser')
-                a_tag = soup.find('a')
-                if a_tag:
-                    code = a_tag['href'].split('/')[-1]
-                    short_name = a_tag.text.strip()
-                    full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')
-                    name = f"{short_name} - {full_name}"
-                    if code and name:
-                        codes.append((code, name))
-            return list(set(codes))
-        except requests.RequestException as e:
-            print(f"API fetch error (attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-            else:
-                return []
+
+    while True:
+        body = {
+            "dtDraw": 7,
+            "start": start,
+            "order": [{"column": 1, "dir": "asc"}],
+            "page": start // size,  # Calculate page number based on start and size
+            "size": size,
+            "marketList": ["ACE", "ETF", "MAIN"],
+            "sectorList": [],
+            "subsectorList": [],
+            "type": "",
+            "stockType": ""
+        }
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(url, headers=headers, json=body, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                if 'data' not in data or not data['data']:
+                    logger.info(f"No more data at start={start}, stopping pagination")
+                    return list(set(codes))
+                for row in data['data']:
+                    if len(row) < 2: continue
+                    name_html = row[1]
+                    soup = BeautifulSoup(name_html, 'html.parser')
+                    a_tag = soup.find('a')
+                    if a_tag:
+                        code = a_tag['href'].split('/')[-1]
+                        short_name = a_tag.text.strip()
+                        full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')
+                        name = f"{short_name} - {full_name}"
+                        if code and name: codes.append((code, name))
+                # Check if we've retrieved all records (using recordsTotal if available)
+                total_records = data.get('recordsTotal', len(codes) + start)
+                if start + len(data['data']) >= total_records:
+                    logger.info(f"Retrieved all {len(codes)} codes, stopping pagination")
+                    return list(set(codes))
+                start += size  # Move to next page
+                break  # Exit retry loop on success
+            except requests.RequestException as e:
+                logger.warning(f"API fetch error at start={start} (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    logger.error(f"Max retries exceeded at start={start}, returning partial codes")
+                    return list(set(codes))
 
 def update_stock_data(session, code, name):
     """
