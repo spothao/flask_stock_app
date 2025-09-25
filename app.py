@@ -116,8 +116,8 @@ def update_stock_data(session, code, name):
         logger.debug(f"Response headers: {dict(resp.headers)}")
         resp.raise_for_status()
 
-        # Add random sleep between 100ms and 15 seconds
-        sleep_time = random.uniform(0.1, 15)  # Adjusted to 15s max
+        # Add random sleep between 100ms and 5 seconds (shorter for bulk)
+        sleep_time = random.uniform(0.1, 5)
         logger.debug(f"Sleeping for {sleep_time:.2f} seconds before processing {code}")
         time.sleep(sleep_time)
 
@@ -153,7 +153,7 @@ def update_stock_data(session, code, name):
             stock.roe = values['roe']
             stock.current_score = new_score
             stock.breakdown = new_breakdown
-            stock.profit = values['profit']
+            stock.profit = values['profit_margin']  # Updated to match extract_values
             stock.cash_positive = values['cash_positive']
             stock.last_updated = datetime.utcnow()
             stock.last_refreshed = datetime.utcnow()
@@ -196,6 +196,7 @@ def refresh():
         codes = get_all_stock_codes()
         today = datetime.utcnow().date()
         updated_count = 0
+        processed_count = 0  # For progress logging
 
         if not codes:
             logger.warning("No stock codes retrieved from get_all_stock_codes")
@@ -204,14 +205,19 @@ def refresh():
             return redirect(url_for('index'))
 
         for code, name in codes:
-            stock = session.query(Stock).filter_by(code=code).first()  # Define stock here
+            stock = session.query(Stock).filter_by(code=code).first()
             if stock and stock.last_refreshed and stock.last_refreshed.date() == today:
                 logger.info(f"Skipping {code} as it was refreshed today")
                 continue
             success, message, count = update_stock_data(session, code, name)
             updated_count += count
+            processed_count += 1
             if not success:
                 flash(message)
+            
+            # Log progress every 10 stocks
+            if processed_count % 10 == 0:
+                logger.info(f"Progress: Processed {processed_count}/{len(codes)} stocks, updated {updated_count}")
 
         flash(f"Refresh complete! Updated {updated_count} stocks.")
     except Exception as e:
