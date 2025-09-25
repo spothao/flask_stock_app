@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
+import random
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -110,10 +111,15 @@ def update_stock_data(session, code, name):
     logger.debug(f"Request headers: {headers}")
 
     try:
-        resp = requests.get(url, headers=headers, timeout=10).sleep(1)
+        resp = requests.get(url, headers=headers, timeout=10)
         logger.info(f"Received response for {code} with status code: {resp.status_code}")
         logger.debug(f"Response headers: {dict(resp.headers)}")
         resp.raise_for_status()
+
+        # Add random sleep between 100ms and 1 minute after request
+        sleep_time = random.uniform(0.1, 60)  # 100ms to 60s
+        logger.debug(f"Sleeping for {sleep_time:.2f} seconds before processing {code}")
+        time.sleep(sleep_time)
 
         if resp.status_code == 200:
             logger.info(f"Successfully fetched JSON data for {code}")
