@@ -210,7 +210,7 @@ def manual_refresh():
         if code:
             stock = session.query(Stock).filter_by(code=code).first()
             if not stock:
-                stock = Stock(code=code, name=name)
+                stock = Stock(code=code)
                 session.add(stock)
                 session.commit()  # Immediate upsert for new stock
             else:
