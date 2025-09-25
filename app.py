@@ -14,6 +14,7 @@ from flask_migrate import Migrate
 import logging
 import traceback
 from scoring import extract_values, compute_score
+from threading import Lock
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +41,8 @@ Session = sessionmaker(bind=engine)
 with app.app_context():
     db.create_all()
 
-# Global flag to control background refresh
+# Global state management with lock
+refresh_lock = Lock()
 refresh_running = False
 refresh_stop_flag = False
 
@@ -185,6 +187,9 @@ def update_stock_data(session, code, name):
 
 def background_refresh():
     global refresh_running, refresh_stop_flag
+    with refresh_lock:
+        refresh_running = True
+        logger.info("Refresh process started, refresh_running set to True")
     session = Session()
     codes = get_all_stock_codes()
     today = datetime.utcnow().date()
@@ -194,6 +199,8 @@ def background_refresh():
     if not codes:
         logger.warning("No stock codes retrieved from get_all_stock_codes")
         flash("No stock codes available for refresh.")
+        with refresh_lock:
+            refresh_running = False
         session.close()
         return
 
@@ -216,9 +223,11 @@ def background_refresh():
         if processed_count % 10 == 0:
             logger.info(f"Progress: Processed {processed_count}/{len(codes)} stocks, updated {updated_count}")
 
-    if not refresh_stop_flag:
-        flash(f"Refresh complete! Updated {updated_count} stocks.")
-    refresh_running = False
+    with refresh_lock:
+        if not refresh_stop_flag:
+            flash(f"Refresh complete! Updated {updated_count} stocks.")
+        refresh_running = False
+        logger.info("Refresh process ended, refresh_running set to False")
     session.close()
     logger.info(f"Session closed after refresh, total updated: {updated_count}")
 
@@ -244,7 +253,9 @@ def index():
         ).offset(offset).limit(per_page).all() or []
         
         session.close()
-        return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages, total_stocks=total_stocks, refresh_running=refresh_running)
+        with refresh_lock:
+            current_refresh_running = refresh_running
+        return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages, total_stocks=total_stocks, refresh_running=current_refresh_running)
     except Exception as e:
         logger.error(f"Database error in index: {e}, Traceback: {traceback.format_exc()}")
         return render_template('error.html', message=f"Database error: {e}. Please try again later."), 500
@@ -252,20 +263,24 @@ def index():
 @app.route('/start_refresh', methods=['POST'])
 def start_refresh():
     global refresh_running, refresh_stop_flag
-    if not refresh_running:
-        refresh_stop_flag = False
-        refresh_thread = threading.Thread(target=background_refresh)
-        refresh_thread.daemon = True
-        refresh_thread.start()
-        flash("Refresh process started in background. Check back later or stop if needed.")
-    else:
-        flash("Refresh is already running.")
+    with refresh_lock:
+        if not refresh_running:
+            refresh_stop_flag = False
+            refresh_thread = threading.Thread(target=background_refresh)
+            refresh_thread.daemon = True
+            refresh_thread.start()
+            logger.info("Started refresh thread")
+            flash("Refresh process started in background. Check back later or stop if needed.")
+        else:
+            flash("Refresh is already running.")
     return redirect(url_for('index'))
 
 @app.route('/stop_refresh', methods=['POST'])
 def stop_refresh():
     global refresh_stop_flag
-    refresh_stop_flag = True
+    with refresh_lock:
+        refresh_stop_flag = True
+        logger.info("Stop refresh flag set to True")
     flash("Refresh process will stop after current stock.")
     return redirect(url_for('index'))
 
