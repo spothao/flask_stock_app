@@ -45,10 +45,11 @@ def extract_values(stock_data):
                     growth = 0
                 else:
                     num_years = len(years) - 1
-                    growth = ((latest_profit / earliest_profit) ** (1 / num_years) - 1) * 100
+                    growth = ((latest_profit / earliest_profit) ** (1 / num_years) - 1)
             else:
                 growth = clean_float(indicators.get('cagr_3y', 0))
     
+    growth = growth * 100
     # Extract profit, revenue for margin, and cash_flow from latest report
     profit = 0
     revenue = 1
