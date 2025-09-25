@@ -232,20 +232,24 @@ def index():
         
         # Count total for pagination
         total_stocks = session.query(Stock).count()
-        total_pages = (total_stocks + per_page - 1) // per_page
+        if total_stocks is None:
+            total_stocks = 0
+            logger.error("Total stocks count returned None, defaulting to 0")
+        
+        total_pages = (total_stocks + per_page - 1) // per_page if total_stocks else 1
         
         # Fetch paginated stocks, sorted by favorite desc, then score desc
         stocks = session.query(Stock).order_by(
             Stock.is_favorite.desc(), Stock.current_score.desc()
-        ).offset(offset).limit(per_page).all()
+        ).offset(offset).limit(per_page).all() or []
         
         session.close()
         return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages, total_stocks=total_stocks, refresh_running=refresh_running)
     except Exception as e:
-        print(f"Database error in index: {e}")
-        return render_template('error.html', message="Database connection failed. Please try again later."), 500
+        logger.error(f"Database error in index: {e}, Traceback: {traceback.format_exc()}")
+        return render_template('error.html', message=f"Database error: {e}. Please try again later."), 500
 
-@app.route('/refresh', methods=['POST'])
+@app.route('/start_refresh', methods=['POST'])
 def start_refresh():
     global refresh_running, refresh_stop_flag
     if not refresh_running:
