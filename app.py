@@ -141,8 +141,10 @@ def refresh():
                 continue
             
             url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             try:
-                resp = requests.get(url, timeout=10)
+                resp = requests.get(url, headers=headers, timeout=10)
+                resp.raise_for_status()
                 if resp.status_code == 200:
                     stock_data = resp.json()
                     values = extract_values(stock_data)  # Extract values
@@ -218,8 +220,10 @@ def manual_refresh():
                 pass  # Will update below, commit after changes
             
             url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             try:
-                resp = requests.get(url, timeout=10)
+                resp = requests.get(url, headers=headers, timeout=10)
+                resp.raise_for_status()
                 if resp.status_code == 200:
                     stock_data = resp.json()
                     values = extract_values(stock_data)  # Extract values
