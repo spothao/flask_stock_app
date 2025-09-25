@@ -67,8 +67,10 @@ def extract_values(stock_data):
     
     margin = (profit / revenue * 100) if revenue else 0
 
-    # Cash ratio from balance sheet
+    # Cash ratio from balance sheet or StockIndicator (handle list case)
     bs = stock_data.get('stock_bs', {})
+    if not isinstance(bs, dict):
+        bs = stock_data.get('StockIndicator', {})  # Fallback to indicators for warrants
     total_cash = clean_float(bs.get('total_cash', 0))
     total_debt = clean_float(bs.get('total_debt', 0))
     total_equity = clean_float(bs.get('total_equity', 0))
@@ -93,7 +95,7 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     """
     profit_positive = profit >= 0
     
-    # G: Growth (stepwise from user code, with linear fallback)
+    # G: Growth (stepwise from user code)
     if growth >= 15:
         g_points = 50
     elif growth >= 10:
@@ -103,9 +105,9 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif growth >= 1:
         g_points = 20
     else:
-        g_points = 0  # Or linear: max(0, min(50, (max(growth - 5, 0) / 10) * 50))
+        g_points = 0
     
-    # D: Dividend Yield (stepwise from user code, with linear fallback)
+    # D: Dividend Yield (stepwise from user code)
     if div_yield >= 7:
         d_points = 20
     elif div_yield >= 5:
@@ -115,7 +117,7 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif div_yield >= 1:
         d_points = 5
     else:
-        d_points = 0  # Or linear: max(0, min(20, (max(div_yield - 1, 0) / 5) * 20))
+        d_points = 0
     
     # P_PER: PER (stepwise from user code, handle negative as 0)
     if per < 0:
@@ -127,11 +129,11 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif per <= 24:
         p_per_points = 10
     else:
-        p_per_points = 5  # Or 0 if >24; linear: max(0, min(20, 20 - (min((per - 10) / 15 * 20, 20))))
+        p_per_points = 5
     
     gdp = g_points + d_points + p_per_points
     
-    # P_PM: Profit Margin (stepwise from user code, with linear fallback)
+    # P_PM: Profit Margin (stepwise from user code)
     if margin >= 16:
         p_pm_points = 20
     elif margin >= 11:
@@ -141,7 +143,7 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif margin >= 1:
         p_pm_points = 5
     else:
-        p_pm_points = 0  # Or linear: max(0, min(20, (max(margin - 5, 0) / 15) * 20))
+        p_pm_points = 0
     
     # R: ROE (stepwise from user code, cap negative at 0)
     if roe >= 16:
@@ -153,7 +155,7 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif roe >= 1:
         r_points = 10
     else:
-        r_points = 0  # Or linear: max(0, min(20, (max(roe - 5, 0) / 10) * 20)) if roe > 0 else 0
+        r_points = 0
     
     # C: Cash Flow (user logic with enhancement for cash_ratio)
     if not profit_positive:

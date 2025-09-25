@@ -153,7 +153,7 @@ def update_stock_data(session, code, name):
             stock.roe = values['roe']
             stock.current_score = new_score
             stock.breakdown = new_breakdown
-            stock.profit = values['profit_margin']  # Updated to match extract_values
+            stock.profit = values['margin']  # Updated to match extract_values
             stock.cash_positive = values['cash_positive']
             stock.last_updated = datetime.utcnow()
             stock.last_refreshed = datetime.utcnow()
@@ -182,9 +182,21 @@ def update_stock_data(session, code, name):
 def index():
     try:
         session = Session()
-        stocks = session.query(Stock).order_by(Stock.is_favorite.desc(), Stock.current_score.desc()).all()
+        page = request.args.get('page', 1, type=int)
+        per_page = 50
+        offset = (page - 1) * per_page
+        
+        # Count total for pagination
+        total_stocks = session.query(Stock).count()
+        total_pages = (total_stocks + per_page - 1) // per_page  # Ceiling division
+        
+        # Fetch paginated stocks, sorted by favorite desc, then score desc
+        stocks = session.query(Stock).order_by(
+            Stock.is_favorite.desc(), Stock.current_score.desc()
+        ).offset(offset).limit(per_page).all()
+        
         session.close()
-        return render_template('index.html', stocks=stocks)
+        return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages)
     except Exception as e:
         print(f"Database error in index: {e}")
         return render_template('error.html', message="Database connection failed. Please try again later."), 500

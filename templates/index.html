@@ -1,11 +1,15 @@
 {% extends 'base.html' %}
 {% block content %}
     <div class="container mt-4">
-        <h1>KLSE Stock Scorer ({{ stocks|length }} Stocks)</h1>
-        <p>Current Date: September 19, 2025</p>
-        <form method="post" action="{{ url_for('refresh') }}" class="mb-3">
+        <h1>KLSE Stock Scorer ({{ total_stocks if total_stocks else stocks|length }} Stocks)</h1>
+        <p>Current Date: September 25, 2025</p>
+        <form method="post" action="{{ url_for('refresh') }}" class="mb-3" style="display: inline;">
             <button type="submit" class="btn btn-primary">Refresh All Data & Scores</button>
         </form>
+        <form method="post" action="{{ url_for('retry_failed') }}" class="mb-3" style="display: inline; margin-left: 10px;">
+            <button type="submit" class="btn btn-warning">Retry Failed Stocks</button>
+        </form>
+        <a href="{{ url_for('manual_refresh') }}" class="btn btn-success mb-3" style="margin-left: 10px;">Manual Refresh</a>
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 <div class="alert alert-info">
@@ -54,14 +58,47 @@
                 {% endfor %}
             </tbody>
         </table>
+        
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <nav aria-label="Stock pagination">
+            <ul class="pagination justify-content-center">
+                {% if current_page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('index', page=current_page - 1) }}">Previous</a>
+                    </li>
+                {% endif %}
+                {% for page_num in range(1, total_pages + 1) %}
+                    {% if page_num == current_page %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_num }}</span>
+                        </li>
+                    {% else %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('index', page=page_num) }}">{{ page_num }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+                {% if current_page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('index', page=current_page + 1) }}">Next</a>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="text-center">
+            <small>Page {{ current_page }} of {{ total_pages }} ({{ (current_page - 1) * 50 + 1 }} - {{ min(current_page * 50, total_stocks) }} of {{ total_stocks }} stocks)</small>
+        </div>
+        {% endif %}
+        
         <script>
             $(document).ready(function() {
                 $('#stocksTable').DataTable({
-                    "paging": true,
+                    "paging": false,  // Disable client-side paging; use server-side
                     "searching": true,  // Enables filter/search
                     "ordering": true,   // Enables sorting
                     "order": [[0, 'desc'], [3, 'desc']],  // Favorite desc, then Score desc
-                    "pageLength": 25,
+                    "pageLength": 50,  // Match server per_page
                     "columns": [
                         null,  // Favorite
                         null,  // Code (sortable)
