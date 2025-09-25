@@ -224,6 +224,45 @@ def refresh():
 
     return redirect(url_for('index'))
 
+@app.route('/retry_failed', methods=['POST'])
+def retry_failed():
+    """
+    Retry refresh for stocks with current_score == 0 and empty breakdown.
+    """
+    try:
+        session = Session()
+        # Query failed stocks: current_score == 0 and breakdown is empty dict or None
+        failed_stocks = session.query(Stock).filter(
+            Stock.current_score == 0,
+            Stock.breakdown == {}
+        ).all()
+        
+        if not failed_stocks:
+            logger.info("No failed stocks found for retry.")
+            flash("No failed stocks to retry.")
+            session.close()
+            return redirect(url_for('index'))
+
+        logger.info(f"Starting retry for {len(failed_stocks)} failed stocks.")
+        updated_count = 0
+
+        for stock in failed_stocks:
+            success, message, count = update_stock_data(session, stock.code, stock.name)
+            updated_count += count
+            if not success:
+                flash(message)
+
+        flash(f"Retry complete! Updated {updated_count} failed stocks.")
+    except Exception as e:
+        logger.error(f"Database error during retry_failed: {e}, Traceback: {traceback.format_exc()}")
+        flash(f"Database error: {e}")
+        session.rollback()
+    finally:
+        session.close()
+        logger.info(f"Session closed after retry_failed, total updated: {updated_count}")
+
+    return redirect(url_for('index'))
+
 @app.route('/favorite/<code>', methods=['POST'])
 def favorite(code):
     try:
