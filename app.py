@@ -10,6 +10,7 @@ from models import db, Stock, History
 from datetime import datetime
 from flask_migrate import Migrate
 import logging
+from scoring import extract_values, compute_score  # Import from new file
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,25 +32,27 @@ engine = create_engine(
     pool_timeout=30,
     connect_args={'sslmode': 'require'}
 )
-Base = declarative_base()
+# Base = declarative_base()
 
-# Stock model
-class Stock(Base):
-    __tablename__ = 'stock'
-    id = Column(Integer, primary_key=True)
-    code = Column(String, unique=True, nullable=False)
-    name = Column(String)
-    last_updated = Column(DateTime)
-    current_score = Column(Float)
-    breakdown = Column(JSON)
-    is_favorite = Column(Boolean, default=False)
-    net_profit_5y_cagr = Column(Float)
-    div_yield = Column(Float)
-    pe_ratio = Column(Float)
-    roe = Column(Float)
-    last_refreshed = Column(DateTime)
+# # Stock model
+# class Stock(Base):
+#     __tablename__ = 'stock'
+#     id = Column(Integer, primary_key=True)
+#     code = Column(String, unique=True, nullable=False)
+#     name = Column(String)
+#     last_updated = Column(DateTime)
+#     current_score = Column(Float)
+#     breakdown = Column(JSON)
+#     is_favorite = Column(Boolean, default=False)
+#     growth_cagr = Column(Float)
+#     div_yield = Column(Float)
+#     pe_ratio = Column(Float)
+#     roe = Column(Float)
+#     profit = Column(Float)
+#     cash_positive = Column(Float)
+#     last_refreshed = Column(DateTime)
 
-Base.metadata.create_all(engine)
+# Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 with app.app_context():
@@ -141,27 +144,32 @@ def refresh():
             try:
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
-                    data = resp.json()
-                    new_score, new_breakdown = calculate_score(data)
+                    stock_data = resp.json()
+                    values = extract_values(stock_data)  # Extract values
+                    new_score, new_breakdown = compute_score(**values)  # Compute score from extracted values
                     
                     if stock.current_score != new_score and stock.current_score != 0:
                         history = History(
                             stock_id=stock.id,
                             score=stock.current_score,
                             breakdown=stock.breakdown,
-                            net_profit_5y_cagr=stock.net_profit_5y_cagr,
+                            growth_cagr=stock.growth_cagr,
                             div_yield=stock.div_yield,
                             pe_ratio=stock.pe_ratio,
                             roe=stock.roe
+                            profit=stock.profit
+                            cash_positive=stock.cash_positive
                         )
                         session.add(history)
                     
-                    stock.net_profit_5y_cagr = float(data.get('growth', {}).get('net_profit_5y_cagr', 0))
-                    stock.div_yield = float(data.get('Stock', {}).get('DY', 0))
-                    stock.pe_ratio = float(data.get('Stock', {}).get('PE', 999))
-                    stock.roe = float(data.get('Stock', {}).get('ROE', 0))
+                    stock.growth_cagr = values['growth']
+                    stock.div_yield = values['div_yield']
+                    stock.pe_ratio = values['per']
+                    stock.roe = values['roe']
                     stock.current_score = new_score
                     stock.breakdown = new_breakdown
+                    stock.profit = values['profit']
+                    stock.cash_positive = values['cash_positive']
                     stock.last_updated = datetime.utcnow()
                     stock.last_refreshed = datetime.utcnow()
                     session.commit()  # Immediate upsert for updates
@@ -196,43 +204,70 @@ def favorite(code):
 
 @app.route('/manual_refresh', methods=['GET', 'POST'])
 def manual_refresh():
-    db_session = Session()
+    session = Session()
     try:
         if request.method == 'POST':
             code = request.form.get('stock_code', '').upper()
             if code:
-                url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-                resp = requests.get(url, headers=headers, timeout=10)
-                resp.raise_for_status()
-                stock_data = resp.json()
-                
-                stock = db_session.query(Stock).filter_by(code=code).first()
+                stock = session.query(Stock).filter_by(code=code).first()
                 if not stock:
-                    stock = Stock(code=code, name=stock_data.get('Stock', {}).get('name', code))
-                    db_session.add(stock)
-                    db_session.commit()
+                    stock = Stock(code=code, name=name)
+                    session.add(stock)
+                    session.commit()  # Immediate upsert for new stock
+                else:
+                    # Update existing stock
+                    pass  # Will update below, commit after changes
                 
-                score, breakdown = calculate_score(stock_data, stock)
-                stock.current_score = score
-                stock.breakdown = breakdown
-                stock.last_updated = datetime.utcnow()
-                db_session.commit()
-                flash(f"Score for {stock.name} ({code}): {score}")
-                return redirect(url_for('manual_refresh'))
+                url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
+                try:
+                    resp = requests.get(url, timeout=10)
+                    if resp.status_code == 200:
+                        stock_data = resp.json()
+                        values = extract_values(stock_data)  # Extract values
+                        new_score, new_breakdown = compute_score(**values)  # Compute score from extracted values
+                        
+                        if stock.current_score != new_score and stock.current_score != 0:
+                            history = History(
+                                stock_id=stock.id,
+                                score=stock.current_score,
+                                breakdown=stock.breakdown,
+                                growth_cagr=stock.growth_cagr,
+                                div_yield=stock.div_yield,
+                                pe_ratio=stock.pe_ratio,
+                                roe=stock.roe
+                                profit=stock.profit
+                                cash_positive=stock.cash_positive
+                            )
+                            session.add(history)
+                        
+                        stock.growth_cagr = values['growth']
+                        stock.div_yield = values['div_yield']
+                        stock.pe_ratio = values['per']
+                        stock.roe = values['roe']
+                        stock.current_score = new_score
+                        stock.breakdown = new_breakdown
+                        stock.profit = values['profit']
+                        stock.cash_positive = values['cash_positive']
+                        stock.last_updated = datetime.utcnow()
+                        stock.last_refreshed = datetime.utcnow()
+                        session.commit()  # Immediate upsert for updates
+                        flash(f"Score for {stock.name} ({code}): {score}")
+                        return redirect(url_for('manual_refresh'))
+                    else:
+                        flash(f"Failed to fetch {code}")
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 403:
+                        flash(f"Access denied for {code}. The site may block automated requests. Try a different stock or contact support.")
+                    else:
+                        flash(f"Failed to fetch {code}: {e}")
+                except requests.RequestException as e:
+                    flash(f"Network error for {code}: {e}")
+                except Exception as e:
+                    flash(f"Error processing {code}: {e}")
+                finally:
+                    session.close()
             else:
-                flash("Please enter a stock code.")
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            flash(f"Access denied for {code}. The site may block automated requests. Try a different stock or contact support.")
-        else:
-            flash(f"Failed to fetch {code}: {e}")
-    except requests.RequestException as e:
-        flash(f"Network error for {code}: {e}")
-    except Exception as e:
-        flash(f"Error processing {code}: {e}")
-    finally:
-        db_session.close()
+                flash("Please enter a stock code.")se()
 
     return render_template('manual_refresh.html')
 
