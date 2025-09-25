@@ -215,20 +215,34 @@ def manual_refresh():
                 stock = Stock(code=code, name=code)
                 session.add(stock)
                 session.commit()  # Immediate upsert for new stock
+                logger.info(f"Created new stock entry for code: {code}, name: {stock.name}")
             else:
-                # Update existing stock
-                pass  # Will update below, commit after changes
-            
+                logger.info(f"Found existing stock entry for code: {code}, name: {stock.name}")
+
             url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            logger.info(f"Attempting to fetch data for {code} from URL: {url}")
+            logger.debug(f"Request headers: {headers}")
+
             try:
                 resp = requests.get(url, headers=headers, timeout=10)
-                resp.raise_for_status()
+                logger.info(f"Received response for {code} with status code: {resp.status_code}")
+                logger.debug(f"Response headers: {dict(resp.headers)}")
+                resp.raise_for_status()  # Raises HTTPError for bad responses (4xx, 5xx)
+
                 if resp.status_code == 200:
+                    logger.info(f"Successfully fetched JSON data for {code}")
                     stock_data = resp.json()
+                    logger.debug(f"Sample of stock_data: {dict(list(stock_data.items())[:3])}...")  # Log first few items to avoid flooding
+
                     values = extract_values(stock_data)  # Extract values
-                    new_score, new_breakdown = compute_score(**values)  # Compute score from extracted values
-                    
+                    logger.debug(f"Extracted values: {values}")
+
+                    new_score, new_breakdown = compute_score(**values)  # Compute score
+                    logger.info(f"Computed new score for {code}: {new_score}")
+
                     if stock.current_score != new_score and stock.current_score != 0:
                         history = History(
                             stock_id=stock.id,
@@ -242,7 +256,8 @@ def manual_refresh():
                             cash_positive=stock.cash_positive
                         )
                         session.add(history)
-                    
+                        logger.info(f"Added history entry for {code} with previous score: {stock.current_score}")
+
                     stock.growth_cagr = values['growth']
                     stock.div_yield = values['div_yield']
                     stock.pe_ratio = values['per']
@@ -254,22 +269,32 @@ def manual_refresh():
                     stock.last_updated = datetime.utcnow()
                     stock.last_refreshed = datetime.utcnow()
                     session.commit()  # Immediate upsert for updates
-                    flash(f"Score for {stock.name} ({code}): {score}")
+                    logger.info(f"Updated stock {code} in database with score: {new_score}")
+                    flash(f"Score for {stock.name} ({code}): {new_score}")
                     return redirect(url_for('manual_refresh'))
                 else:
-                    flash(f"Failed to fetch {code}")
+                    logger.warning(f"Unexpected status code {resp.status_code} for {code}")
+                    flash(f"Failed to fetch {code} - Unexpected status: {resp.status_code}")
             except requests.exceptions.HTTPError as e:
+                logger.error(f"HTTP error for {code}: {e}, Response text: {e.response.text if e.response else 'No response'}")
                 if e.response.status_code == 403:
                     flash(f"Access denied for {code}. The site may block automated requests. Try a different stock or contact support.")
                 else:
                     flash(f"Failed to fetch {code}: {e}")
-            except requests.RequestException as e:
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error for {code}: {e}, URL: {url}")
                 flash(f"Network error for {code}: {e}")
+            except ValueError as e:
+                logger.error(f"JSON parsing error for {code}: {e}, Response text: {resp.text if 'resp' in locals() else 'No response'}")
+                flash(f"Failed to parse data for {code}: {e}")
             except Exception as e:
+                logger.error(f"Unexpected error processing {code}: {e}, Traceback: {traceback.format_exc()}")
                 flash(f"Error processing {code}: {e}")
             finally:
                 session.close()
+                logger.info(f"Session closed for {code}")
         else:
+            logger.warning("No stock code provided in form")
             flash("Please enter a stock code.")
 
     return render_template('manual_refresh.html')
