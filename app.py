@@ -204,7 +204,8 @@ def refresh():
             return redirect(url_for('index'))
 
         for code, name in codes:
-            if stock.last_refreshed and stock.last_refreshed.date() == today:
+            stock = session.query(Stock).filter_by(code=code).first()  # Define stock here
+            if stock and stock.last_refreshed and stock.last_refreshed.date() == today:
                 logger.info(f"Skipping {code} as it was refreshed today")
                 continue
             success, message, count = update_stock_data(session, code, name)
