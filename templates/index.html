@@ -52,10 +52,10 @@
                     <td><strong>{{ stock.current_score }}</strong></td>
                     <td>
                         {% set bd = stock.breakdown %}
-                        <small>G:{{ bd.G if bd else 0 }} D:{{ bd.D if bd else 0 }} P:{{ bd.P_GDP if bd else 0 }} ({{ bd.GDP if bd else 0 }})</small>
+                        <small>G:{{ bd.G if bd else 0 }} D:{{ bd.D if bd else 0 }} P:{{ bd.P_PER if bd else 0 }} ({{ bd.GDP if bd else 0 }})</small>
                     </td>
                     <td>
-                        <small>P:{{ bd.P_PRC if bd else 0 }} R:{{ bd.R if bd else 0 }} C:{{ bd.C if bd else 0 }} ({{ bd.PRC if bd else 0 }})</small>
+                        <small>P:{{ bd.P_PM if bd else 0 }} R:{{ bd.R if bd else 0 }} C:{{ bd.C if bd else 0 }} ({{ bd.PRC if bd else 0 }})</small>
                     </td>
                     <td>{{ stock.last_updated.strftime('%Y-%m-%d %H:%M') if stock.last_updated else 'N/A' }}</td>
                     <td>
