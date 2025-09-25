@@ -1,8 +1,5 @@
-import json
-import pandas as pd
-import numpy as np
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
 
 def clean_float(value):
     """
@@ -96,8 +93,7 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     """
     profit_positive = profit >= 0
     
-    # G: Growth (linear scale: 0 <5%, 50 >15%; from images, adjusted to user bands)
-    g_points = max(0, min(50, (max(growth - 5, 0) / 10) * 50))  # Linear fallback to user's step: 50>=15,40>=10,etc.
+    # G: Growth (stepwise from user code, with linear fallback)
     if growth >= 15:
         g_points = 50
     elif growth >= 10:
@@ -107,10 +103,9 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif growth >= 1:
         g_points = 20
     else:
-        g_points = 0
+        g_points = 0  # Or linear: max(0, min(50, (max(growth - 5, 0) / 10) * 50))
     
-    # D: Dividend Yield (linear: 0 <1%, 20 >6%)
-    d_points = max(0, min(20, (max(div_yield - 1, 0) / 5) * 20))  # Linear fallback to user's step
+    # D: Dividend Yield (stepwise from user code, with linear fallback)
     if div_yield >= 7:
         d_points = 20
     elif div_yield >= 5:
@@ -120,26 +115,23 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif div_yield >= 1:
         d_points = 5
     else:
-        d_points = 0
+        d_points = 0  # Or linear: max(0, min(20, (max(div_yield - 1, 0) / 5) * 20))
     
-    # P_PER: PER (inverse linear: 20 <10x, 0 >25x; handle negative as 0)
-    p_per_points = 0 if per < 0 else max(0, min(20, 20 - (min((per - 10) / 15 * 20, 20))))
-    # User's step: 30<=9,20<=15,10<=24,5>0
-    if 0 < per <= 9:
+    # P_PER: PER (stepwise from user code, handle negative as 0)
+    if per < 0:
+        p_per_points = 0
+    elif per <= 9:
         p_per_points = 30
     elif per <= 15:
         p_per_points = 20
     elif per <= 24:
         p_per_points = 10
-    elif per > 0:
-        p_per_points = 5
     else:
-        p_per_points = 0
+        p_per_points = 5  # Or 0 if >24; linear: max(0, min(20, 20 - (min((per - 10) / 15 * 20, 20))))
     
     gdp = g_points + d_points + p_per_points
     
-    # P_PM: Profit Margin (linear: 0 <5%, 20 >20%; from images)
-    p_pm_points = max(0, min(20, (max(margin - 5, 0) / 15) * 20))  # Linear fallback to user's step
+    # P_PM: Profit Margin (stepwise from user code, with linear fallback)
     if margin >= 16:
         p_pm_points = 20
     elif margin >= 11:
@@ -149,11 +141,9 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif margin >= 1:
         p_pm_points = 5
     else:
-        p_pm_points = 0
+        p_pm_points = 0  # Or linear: max(0, min(20, (max(margin - 5, 0) / 15) * 20))
     
-    # R: ROE (linear: 0 <5%, 20 >15%; cap negative at 0)
-    r_points = max(0, min(20, (max(roe - 5, 0) / 10) * 20)) if roe > 0 else 0
-    # User's step: 40>=16,30>=11,20>=6,10>=1,0<1
+    # R: ROE (stepwise from user code, cap negative at 0)
     if roe >= 16:
         r_points = 40
     elif roe >= 11:
@@ -163,19 +153,18 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     elif roe >= 1:
         r_points = 10
     else:
-        r_points = 0
+        r_points = 0  # Or linear: max(0, min(20, (max(roe - 5, 0) / 10) * 20)) if roe > 0 else 0
     
-    # C: Cash Flow (binary-ish: 0 negative, 10-20 positive scaled by cash_ratio; enhanced from images/user)
-    c_points = 0
-    if cash_positive:
-        c_points = 10 + min(10, (cash_ratio / 10))  # Scale with ratio
-        if profit_positive:
-            c_points += 10  # Bonus for positive profit (user logic)
-            c_points = min(40, c_points)  # Cap at user's max
-        else:
-            c_points = min(20, c_points)
+    # C: Cash Flow (user logic with enhancement for cash_ratio)
+    if not profit_positive:
+        c_points = 20 if cash_positive else 1
     else:
-        c_points = 1 if profit_positive else 0  # User's minimal for non-positive
+        c_points = 40 if cash_positive else 30
+    # Scale with cash_ratio if positive (0-10 bonus)
+    if cash_positive:
+        c_bonus = min(10, (cash_ratio / 10))
+        c_points += c_bonus
+        c_points = min(50, c_points)  # Cap to avoid excess
     
     prc = p_pm_points + r_points + c_points
     
