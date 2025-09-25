@@ -15,6 +15,7 @@ import logging
 import traceback
 from scoring import extract_values, compute_score
 from threading import Lock
+from queue import Queue
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,10 +42,11 @@ Session = sessionmaker(bind=engine)
 with app.app_context():
     db.create_all()
 
-# Global state management with lock
+# Global state management with lock and queue for messages
 refresh_lock = Lock()
 refresh_running = False
 refresh_stop_flag = False
+refresh_message_queue = Queue()
 
 def get_all_stock_codes():
     codes = []
@@ -198,7 +200,6 @@ def background_refresh():
 
     if not codes:
         logger.warning("No stock codes retrieved from get_all_stock_codes")
-        flash("No stock codes available for refresh.")
         with refresh_lock:
             refresh_running = False
         session.close()
@@ -207,7 +208,6 @@ def background_refresh():
     for code, name in codes:
         if refresh_stop_flag:
             logger.info("Refresh stopped by user request")
-            flash("Refresh process stopped by user.")
             break
         stock = session.query(Stock).filter_by(code=code).first()
         if stock and stock.last_refreshed and stock.last_refreshed.date() == today:
@@ -217,7 +217,7 @@ def background_refresh():
         updated_count += count
         processed_count += 1
         if not success:
-            flash(message)
+            refresh_message_queue.put(message)
         
         # Log progress every 10 stocks
         if processed_count % 10 == 0:
@@ -225,7 +225,9 @@ def background_refresh():
 
     with refresh_lock:
         if not refresh_stop_flag:
-            flash(f"Refresh complete! Updated {updated_count} stocks.")
+            refresh_message_queue.put(f"Refresh complete! Updated {updated_count} stocks.")
+        else:
+            refresh_message_queue.put("Refresh process stopped by user.")
         refresh_running = False
         logger.info("Refresh process ended, refresh_running set to False")
     session.close()
@@ -255,6 +257,12 @@ def index():
         session.close()
         with refresh_lock:
             current_refresh_running = refresh_running
+        # Process any queued messages
+        messages = []
+        while not refresh_message_queue.empty():
+            messages.append(refresh_message_queue.get())
+        for message in messages:
+            flash(message)
         return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages, total_stocks=total_stocks, refresh_running=current_refresh_running)
     except Exception as e:
         logger.error(f"Database error in index: {e}, Traceback: {traceback.format_exc()}")
