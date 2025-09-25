@@ -16,8 +16,10 @@ class Stock(db.Model):
     pe_ratio = db.Column(db.Float, default=999.0)
     roe = db.Column(db.Float, default=0.0)
     profit = db.Column(db.Float, default=0.0)
-    cash_positive = db.Column(db.Float, default=0.0)
-    last_refreshed = db.Column(db.DateTime)  # New: Tracks last refresh time
+    cash_positive = db.Column(db.Float, default=0.0)  # Assuming cash flow is represented here
+    last_refreshed = db.Column(db.DateTime)  # Tracks last refresh time
+    industry = db.Column(db.String(100), default='Unknown')  # New: Industry
+    market = db.Column(db.String(50), default='Unknown')     # New: Market
 
 class History(db.Model):
     id = db.Column(db.Integer, primary_key=True)
