@@ -163,10 +163,10 @@ def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, ca
     else:
         c_points = 40 if cash_positive else 30
     # Scale with cash_ratio if positive (0-10 bonus)
-    if cash_positive:
-        c_bonus = min(10, (cash_ratio / 10))
-        c_points += c_bonus
-        c_points = min(50, c_points)  # Cap to avoid excess
+    # if cash_positive:
+    #     c_bonus = min(10, (cash_ratio / 10))
+    #     c_points += c_bonus
+    #     c_points = min(50, c_points)  # Cap to avoid excess
     
     prc = p_pm_points + r_points + c_points
     
