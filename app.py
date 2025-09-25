@@ -156,8 +156,8 @@ def refresh():
                             growth_cagr=stock.growth_cagr,
                             div_yield=stock.div_yield,
                             pe_ratio=stock.pe_ratio,
-                            roe=stock.roe
-                            profit=stock.profit
+                            roe=stock.roe,
+                            profit=stock.profit,
                             cash_positive=stock.cash_positive
                         )
                         session.add(history)
