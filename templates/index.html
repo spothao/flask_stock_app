@@ -3,7 +3,7 @@
     <div class="container mt-4">
         <h1>KLSE Stock Scorer ({{ total_stocks if total_stocks else stocks|length }} Stocks)</h1>
         <p>Current Date: September 25, 2025</p>
-        <form method="post" action="{{ url_for('refresh') }}" class="mb-3" style="display: inline;">
+        <form method="post" action="{{ url_for('start_refresh') }}" class="mb-3" style="display: inline;">
             <button type="submit" class="btn btn-primary">Refresh All Data & Scores</button>
         </form>
         <form method="post" action="{{ url_for('retry_failed') }}" class="mb-3" style="display: inline; margin-left: 10px;">
