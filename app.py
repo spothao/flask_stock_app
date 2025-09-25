@@ -267,7 +267,7 @@ def manual_refresh():
                 finally:
                     session.close()
             else:
-                flash("Please enter a stock code.")se()
+                flash("Please enter a stock code.")
 
     return render_template('manual_refresh.html')
 
