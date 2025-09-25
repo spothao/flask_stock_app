@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import time
 import os
 import random
+import threading
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,10 @@ Session = sessionmaker(bind=engine)
 
 with app.app_context():
     db.create_all()
+
+# Global flag to control background refresh
+refresh_running = False
+refresh_stop_flag = False
 
 def get_all_stock_codes():
     codes = []
@@ -116,7 +121,7 @@ def update_stock_data(session, code, name):
         logger.debug(f"Response headers: {dict(resp.headers)}")
         resp.raise_for_status()
 
-        # Add random sleep between 100ms and 5 seconds (shorter for bulk)
+        # Add random sleep between 100ms and 5 seconds
         sleep_time = random.uniform(0.1, 5)
         logger.debug(f"Sleeping for {sleep_time:.2f} seconds before processing {code}")
         time.sleep(sleep_time)
@@ -178,6 +183,45 @@ def update_stock_data(session, code, name):
         logger.error(f"Unexpected error processing {code}: {e}, Traceback: {traceback.format_exc()}")
         return False, f"Error processing {code}: {e}", 0
 
+def background_refresh():
+    global refresh_running, refresh_stop_flag
+    session = Session()
+    codes = get_all_stock_codes()
+    today = datetime.utcnow().date()
+    updated_count = 0
+    processed_count = 0
+
+    if not codes:
+        logger.warning("No stock codes retrieved from get_all_stock_codes")
+        flash("No stock codes available for refresh.")
+        session.close()
+        return
+
+    for code, name in codes:
+        if refresh_stop_flag:
+            logger.info("Refresh stopped by user request")
+            flash("Refresh process stopped by user.")
+            break
+        stock = session.query(Stock).filter_by(code=code).first()
+        if stock and stock.last_refreshed and stock.last_refreshed.date() == today:
+            logger.info(f"Skipping {code} as it was refreshed today")
+            continue
+        success, message, count = update_stock_data(session, code, name)
+        updated_count += count
+        processed_count += 1
+        if not success:
+            flash(message)
+        
+        # Log progress every 10 stocks
+        if processed_count % 10 == 0:
+            logger.info(f"Progress: Processed {processed_count}/{len(codes)} stocks, updated {updated_count}")
+
+    if not refresh_stop_flag:
+        flash(f"Refresh complete! Updated {updated_count} stocks.")
+    refresh_running = False
+    session.close()
+    logger.info(f"Session closed after refresh, total updated: {updated_count}")
+
 @app.route('/')
 def index():
     try:
@@ -188,7 +232,7 @@ def index():
         
         # Count total for pagination
         total_stocks = session.query(Stock).count()
-        total_pages = (total_stocks + per_page - 1) // per_page  # Ceiling division
+        total_pages = (total_stocks + per_page - 1) // per_page
         
         # Fetch paginated stocks, sorted by favorite desc, then score desc
         stocks = session.query(Stock).order_by(
@@ -196,50 +240,63 @@ def index():
         ).offset(offset).limit(per_page).all()
         
         session.close()
-        return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages)
+        return render_template('index.html', stocks=stocks, current_page=page, total_pages=total_pages, total_stocks=total_stocks, refresh_running=refresh_running)
     except Exception as e:
         print(f"Database error in index: {e}")
         return render_template('error.html', message="Database connection failed. Please try again later."), 500
 
 @app.route('/refresh', methods=['POST'])
-def refresh():
+def start_refresh():
+    global refresh_running, refresh_stop_flag
+    if not refresh_running:
+        refresh_stop_flag = False
+        refresh_thread = threading.Thread(target=background_refresh)
+        refresh_thread.daemon = True
+        refresh_thread.start()
+        flash("Refresh process started in background. Check back later or stop if needed.")
+    else:
+        flash("Refresh is already running.")
+    return redirect(url_for('index'))
+
+@app.route('/stop_refresh', methods=['POST'])
+def stop_refresh():
+    global refresh_stop_flag
+    refresh_stop_flag = True
+    flash("Refresh process will stop after current stock.")
+    return redirect(url_for('index'))
+
+@app.route('/clear_all', methods=['POST'])
+def clear_all():
     try:
         session = Session()
-        codes = get_all_stock_codes()
-        today = datetime.utcnow().date()
-        updated_count = 0
-        processed_count = 0  # For progress logging
-
-        if not codes:
-            logger.warning("No stock codes retrieved from get_all_stock_codes")
-            flash("No stock codes available for refresh.")
-            session.close()
-            return redirect(url_for('index'))
-
-        for code, name in codes:
-            stock = session.query(Stock).filter_by(code=code).first()
-            if stock and stock.last_refreshed and stock.last_refreshed.date() == today:
-                logger.info(f"Skipping {code} as it was refreshed today")
-                continue
-            success, message, count = update_stock_data(session, code, name)
-            updated_count += count
-            processed_count += 1
-            if not success:
-                flash(message)
-            
-            # Log progress every 10 stocks
-            if processed_count % 10 == 0:
-                logger.info(f"Progress: Processed {processed_count}/{len(codes)} stocks, updated {updated_count}")
-
-        flash(f"Refresh complete! Updated {updated_count} stocks.")
+        session.query(History).delete()
+        session.query(Stock).delete()
+        session.commit()
+        flash("All stock and history data cleared.")
     except Exception as e:
-        logger.error(f"Database error during refresh: {e}, Traceback: {traceback.format_exc()}")
-        flash(f"Database error: {e}")
         session.rollback()
+        flash(f"Error clearing data: {e}")
     finally:
         session.close()
-        logger.info(f"Session closed after refresh, total updated: {updated_count}")
+    return redirect(url_for('index'))
 
+@app.route('/clear_stock/<code>', methods=['POST'])
+def clear_stock(code):
+    try:
+        session = Session()
+        stock = session.query(Stock).filter_by(code=code).first()
+        if stock:
+            session.query(History).filter_by(stock_id=stock.id).delete()
+            session.delete(stock)
+            session.commit()
+            flash(f"Stock {code} and its history cleared.")
+        else:
+            flash(f"Stock {code} not found.")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error clearing stock {code}: {e}")
+    finally:
+        session.close()
     return redirect(url_for('index'))
 
 @app.route('/retry_failed', methods=['POST'])
@@ -249,7 +306,6 @@ def retry_failed():
     """
     try:
         session = Session()
-        # Query failed stocks: current_score == 0 and breakdown is empty dict or None
         failed_stocks = session.query(Stock).filter(
             Stock.current_score == 0,
             Stock.breakdown == {}
