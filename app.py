@@ -116,8 +116,8 @@ def update_stock_data(session, code, name):
         logger.debug(f"Response headers: {dict(resp.headers)}")
         resp.raise_for_status()
 
-        # Add random sleep between 100ms and 1 minute after request
-        sleep_time = random.uniform(0.1, 60)  # 100ms to 60s
+        # Add random sleep between 100ms and 15 seconds
+        sleep_time = random.uniform(0.1, 15)  # Adjusted to 15s max
         logger.debug(f"Sleeping for {sleep_time:.2f} seconds before processing {code}")
         time.sleep(sleep_time)
 
