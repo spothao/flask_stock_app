@@ -51,7 +51,7 @@ refresh_message_queue = Queue()
 def get_all_stock_codes():
     codes = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:142.0) Gecko/20100101 Firefox/142.0',
+        'User-Agent': 'Mozilla/5.0 (compatible; YourApp/1.0; +https://yourapp.com)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br, zstd',
         'Content-Type': 'application/json'
@@ -89,6 +89,9 @@ def get_all_stock_codes():
                     a_tag = soup.find('a')
                     if a_tag:
                         code = a_tag['href'].split('/')[-1]
+                        # Skip warrant-like codes
+                        if any(suffix in code for suffix in ['WA', 'WB', 'WD', 'WC']):
+                            continue
                         short_name = a_tag.text.strip()
                         full_name = soup.get_text(separator=' ').strip().replace(short_name, '').replace(' ', '')
                         name = f"{short_name} - {full_name}"
@@ -117,13 +120,23 @@ def update_stock_data(session, code, name, stock_data=None):
 
     if not stock_data:
         url = f"https://www.klsescreener.com/v2/stocks/view/{code}/all.json"
-        try:
-            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-            resp.raise_for_status()
-            stock_data = resp.json()
-        except Exception as e:
-            logger.error(f"Fetch error for {code}: {e}")
-            return False, f"Failed to fetch {code}", 0
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; YourApp/1.0; +https://yourapp.com)'}, timeout=10)
+                resp.raise_for_status()
+                stock_data = resp.json()
+                break
+            except requests.JSONDecodeError as e:
+                logger.error(f"JSON decode error for {code} (attempt {attempt + 1}/{max_retries}): {e}, Response: {resp.text}")
+                if attempt == max_retries - 1:
+                    return False, f"Failed to parse JSON for {code}", 0
+                time.sleep(2 ** attempt)  # Exponential backoff
+            except requests.RequestException as e:
+                logger.error(f"Fetch error for {code} (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    return False, f"Failed to fetch {code}", 0
+                time.sleep(2 ** attempt)
 
     values = extract_values(stock_data)
     new_score, new_breakdown = compute_score(**values)
@@ -137,7 +150,7 @@ def update_stock_data(session, code, name, stock_data=None):
     stock.pe_ratio = values['per']
     stock.roe = values['roe']
     stock.profit = values['margin']
-    stock.cash_positive = values['cash_positive']  # Assuming cash_positive represents cash flow
+    stock.cash_positive = values['cash_positive']
     stock.current_score = new_score
     stock.breakdown = new_breakdown
     stock.industry = stock_data.get('Sector', {}).get('name', 'Unknown')
