@@ -8,6 +8,7 @@ import threading
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.sql import text
 from models import db, Stock, History
 from datetime import datetime
 from flask_migrate import Migrate
@@ -259,9 +260,9 @@ def clear_all():
         # Delete all records
         session.query(History).delete()
         session.query(Stock).delete()
-        # Reset sequences
-        session.execute("ALTER SEQUENCE stock_id_seq RESTART WITH 1")
-        session.execute("ALTER SEQUENCE history_id_seq RESTART WITH 1")
+        # Reset sequences with text() for raw SQL
+        session.execute(text("ALTER SEQUENCE stock_id_seq RESTART WITH 1"))
+        session.execute(text("ALTER SEQUENCE history_id_seq RESTART WITH 1"))
         session.commit()
         flash("All stock and history data cleared, sequences reset.")
     except Exception as e:
