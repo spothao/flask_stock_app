@@ -104,7 +104,15 @@
                     <td>{{ stock.pe_ratio|round(2) if stock.pe_ratio is not none else 'N/A' }}</td>
                     <td>{{ stock.roe|round(2) if stock.roe is not none else 'N/A' }}%</td>
                     <td>{{ stock.profit|round(2) if stock.profit is not none else 'N/A' }}%</td>
-                    <td>{{ stock.cash_positive|round(2) if stock.cash_positive is not none else 'N/A' }}</td>
+                    <td>
+                        {% set is_profit = stock.profit > 0 %}
+                        {% set is_cash_positive = stock.cash_positive > 0 %}
+                        {% if not is_profit and not is_cash_positive %}Loss with negative cash flow
+                        {% elif not is_profit and is_cash_positive %}Loss with positive cash flow
+                        {% elif is_profit and not is_cash_positive %}Profit with negative cash flow
+                        {% else %}Profit with positive cash flow
+                        {% endif %}
+                    </td>
                     <td>
                         {% set bd = stock.breakdown %}
                         <small>G:{{ bd.G|round(2) if bd and bd.G else 0 }} D:{{ bd.D|round(2) if bd and bd.D else 0 }} P:{{ bd.P_PER|round(2) if bd and bd.P_PER else 0 }} ({{ bd.GDP|round(2) if bd and bd.GDP else 0 }})</small>
