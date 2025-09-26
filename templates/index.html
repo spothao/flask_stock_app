@@ -9,7 +9,10 @@
         <form method="post" action="{{ url_for('retry_failed') }}" class="mb-3" style="display: inline; margin-left: 10px;">
             <button type="submit" class="btn btn-warning">Retry Failed Stocks</button>
         </form>
-        <a href="{{ url_for('manual_refresh') }}" class="btn btn-success mb-3" style="margin-left: 10px;">Manual Refresh</a>
+        <form method="get" action="{{ url_for('manual_refresh') }}" class="mb-3" style="display: inline; margin-left: 10px;">
+            <button type="submit" class="btn btn-success">Manual Refresh</button>
+        </form>
+        <!-- <a href="{{ url_for('manual_refresh') }}" class="btn btn-success mb-3" style="margin-left: 10px;">Manual Refresh</a> -->
         {% if refresh_running %}
         <form method="post" action="{{ url_for('stop_refresh') }}" class="mb-3" style="display: inline; margin-left: 10px;">
             <button type="submit" class="btn btn-danger">Stop Refresh</button>

@@ -256,13 +256,17 @@ def stop_refresh():
 def clear_all():
     try:
         session = Session()
+        # Delete all records
         session.query(History).delete()
         session.query(Stock).delete()
+        # Reset sequences
+        session.execute("ALTER SEQUENCE stock_id_seq RESTART WITH 1")
+        session.execute("ALTER SEQUENCE history_id_seq RESTART WITH 1")
         session.commit()
-        flash("All stock and history data cleared.")
+        flash("All stock and history data cleared, sequences reset.")
     except Exception as e:
         session.rollback()
-        flash(f"Error clearing data: {e}")
+        flash(f"Error clearing data or resetting sequences: {e}")
     finally:
         session.close()
     return redirect(url_for('index'))
