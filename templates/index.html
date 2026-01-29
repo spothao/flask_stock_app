@@ -14,6 +14,14 @@
         </form>
         <!-- <a href="{{ url_for('manual_refresh') }}" class="btn btn-success mb-3" style="margin-left: 10px;">Manual Refresh</a> -->
         {% if refresh_running %}
+        <div class="alert alert-primary d-flex align-items-center" role="alert">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div>
+                <strong>Refresh in progress...</strong> Stocks are being updated in the background. This page will show new data on reload.
+            </div>
+        </div>
         <form method="post" action="{{ url_for('stop_refresh') }}" class="mb-3" style="display: inline; margin-left: 10px;">
             <button type="submit" class="btn btn-danger">Stop Refresh</button>
         </form>

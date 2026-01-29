@@ -30,14 +30,20 @@ db.init_app(app)
 migrate = Migrate(app, db)
 
 # Custom engine with retry and connection pooling
-engine = create_engine(
-    app.config['SQLALCHEMY_DATABASE_URI'],
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    connect_args={'sslmode': 'require'}
-)
+# Configure connection args based on database type
+database_url = app.config['SQLALCHEMY_DATABASE_URI']
+if 'postgresql' in database_url:
+    engine = create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=30,
+        connect_args={'sslmode': 'require'}
+    )
+else:
+    # SQLite doesn't support connection pooling the same way
+    engine = create_engine(database_url)
 Session = sessionmaker(bind=engine)
 
 with app.app_context():

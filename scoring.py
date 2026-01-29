@@ -1,7 +1,8 @@
 from collections import defaultdict
 from datetime import datetime
+from typing import Any, Optional
 
-def clean_float(value):
+def clean_float(value: Any) -> float:
     """
     Safely convert value to float, handling None, commas, and invalid strings.
     """
@@ -13,9 +14,15 @@ def clean_float(value):
     except (ValueError, TypeError):
         return 0.0
 
-def extract_values(stock_data):
+def extract_values(stock_data: dict) -> dict[str, float]:
     """
     Extract necessary values from stock_data JSON for scoring.
+    
+    Args:
+        stock_data: JSON response from KLSEScreener API
+        
+    Returns:
+        Dictionary with keys: growth, div_yield, per, roe, margin, profit, cash_positive, cash_ratio
     """
     # Extract div_yield, per, roe from Stock
     stock = stock_data.get('Stock', {})
@@ -89,10 +96,35 @@ def extract_values(stock_data):
         'cash_ratio': cash_ratio
     }
 
-def compute_score(growth, div_yield, per, roe, margin, profit, cash_positive, cash_ratio=0):
+def compute_score(
+    growth: float,
+    div_yield: float,
+    per: float,
+    roe: float,
+    margin: float,
+    profit: float,
+    cash_positive: int,
+    cash_ratio: float = 0
+) -> tuple[int, dict[str, int]]:
     """
-    Compute score based on extracted values, aligned with W = G + D + P_PER + P_PM + R + C + adjustments.
-    Blends user logic (GDP/PRC) with image thresholds (linear scaling).
+    Compute score based on extracted values.
+    
+    Score formula: W = GDP + PRC where:
+    - GDP = Growth + Dividend + PE Ratio (max 100 pts)
+    - PRC = Profit Margin + ROE + Cash (max 100 pts)
+    
+    Args:
+        growth: CAGR percentage
+        div_yield: Dividend yield percentage
+        per: Price-to-Earnings ratio
+        roe: Return on Equity percentage
+        margin: Profit margin percentage
+        profit: Latest profit/loss value
+        cash_positive: 1 if positive cash flow, 0 otherwise
+        cash_ratio: Cash to equity ratio percentage
+        
+    Returns:
+        Tuple of (total_score, breakdown_dict)
     """
     profit_positive = profit >= 0
     
