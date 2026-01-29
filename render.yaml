@@ -5,6 +5,7 @@ services:
   - type: web
     name: klse-stock-scorer
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt && flask db upgrade
     startCommand: gunicorn app:app
     envVars:
